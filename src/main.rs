@@ -2,6 +2,7 @@ use pollster::block_on;
 
 const WIDTH: usize = 1024;
 const HEIGHT: usize = 1024;
+const SIZE: usize = WIDTH * HEIGHT;
 
 async fn gpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::default();
@@ -25,11 +26,22 @@ async fn compute_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
     })
 }
 
+async fn cpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("CPU Buffer"),
+        size,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 async fn gpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Buffer"),
+        label: Some("GPU Buffer"),
         size,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        usage: wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     })
 }
@@ -39,7 +51,8 @@ async fn run() {
 
     let cs_module = compute_shader(&device).await;
 
-    let size = (WIDTH * HEIGHT * std::mem::size_of::<f32>()) as u64;
+    let size = (SIZE * std::mem::size_of::<u32>()) as u64;
+    let cpu_buffer = cpu_buffer(&device, size).await;
     let storage_buffer = gpu_buffer(&device, size).await;
 
     let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -66,7 +79,7 @@ async fn run() {
     {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("Compute Pass"),
-            timestamp_writes: None
+            timestamp_writes: None,
         });
 
         cpass.set_pipeline(&compute_pipeline);
@@ -78,9 +91,9 @@ async fn run() {
     queue.submit(Some(encoder.finish()));
     let buffer_slice = storage_buffer.slice(..);
     let (sender, receiver) = flume::bounded(1);
-    let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+    let buffer_future =
+        buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
     device.poll(wgpu::Maintain::Wait);
-    
 }
 
 fn main() {
