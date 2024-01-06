@@ -1,8 +1,9 @@
-use env_logger;
 use pollster::block_on;
-use wgpu;
 
-async fn GPUDeviceQueue() -> (wgpu::Device, wgpu::Queue) {
+const WIDTH: u32 = 1024;
+const HEIGHT: u32 = 1024;
+
+async fn gpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::default();
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions::default())
@@ -14,15 +15,33 @@ async fn GPUDeviceQueue() -> (wgpu::Device, wgpu::Queue) {
         .await
         .unwrap();
 
-    return (device, queue);
+    (device, queue)
+}
+
+async fn compute_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
+
+    device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Compute Shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("mandelbrot.wgsl").into()),
+    })
+
+}
+
+async fn gpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Buffer"),
+        size,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
 }
 
 async fn run() {
-    let (device, queue) = GPUDeviceQueue().await;
-    let cs_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("Compute Shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("mandelbrot.wgsl").into()),
-    });
+    let (device, queue) = gpu_device_queue().await;
+
+    let cs_module = compute_shader(&device).await; 
+
+    let storage_buffer = gpu_buffer(&device, (WIDTH * HEIGHT * 4) as u64).await;
 }
 
 fn main() {
