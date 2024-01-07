@@ -1,7 +1,8 @@
 use pollster::block_on;
 
-const WIDTH: usize = 12;
-const HEIGHT: usize = 12;
+const WIDTH: usize = 8*4;
+const HEIGHT: usize = 8*4;
+const WORKGROUP_SIZE: u64 = 64;
 const SIZE: wgpu::BufferAddress = (WIDTH * HEIGHT) as wgpu::BufferAddress;
 
 async fn gpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
@@ -84,7 +85,7 @@ async fn run() {
         cpass.set_pipeline(&compute_pipeline);
         cpass.set_bind_group(0, &bind_group, &[]);
         cpass.insert_debug_marker("MandelBrot Compute Pass");
-        cpass.dispatch_workgroups((WIDTH * HEIGHT) as u32, 1, 1);
+        cpass.dispatch_workgroups((SIZE / WORKGROUP_SIZE) as u32, 1, 1);
     }
 
     encoder.copy_buffer_to_buffer(&gpu_buf, 0, &cpu_buf, 0, size);
