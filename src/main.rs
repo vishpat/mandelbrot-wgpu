@@ -1,8 +1,8 @@
 use pollster::block_on;
 
-const WIDTH: usize = 128;
-const HEIGHT: usize = 128;
-const SIZE: usize = WIDTH * HEIGHT;
+const WIDTH: usize = 12;
+const HEIGHT: usize = 12;
+const SIZE: wgpu::BufferAddress = (WIDTH * HEIGHT) as wgpu::BufferAddress;
 
 async fn gpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::default();
@@ -40,8 +40,7 @@ async fn gpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
         label: Some("GPU Buffer"),
         size,
         usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::COPY_SRC,
+            | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     })
 }
@@ -51,7 +50,7 @@ async fn run() {
 
     let cs_module = compute_shader(&device).await;
 
-    let size = (SIZE * std::mem::size_of::<u32>()) as u64;
+    let size = (SIZE as usize * std::mem::size_of::<u32>()) as u64;
     let cpu_buffer = cpu_buffer(&device, size).await;
     let storage_buffer = gpu_buffer(&device, size).await;
 
@@ -94,23 +93,13 @@ async fn run() {
     buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
     device.poll(wgpu::Maintain::Wait);
 
-    // Awaits until `buffer_future` can be read from
     if let Ok(Ok(())) = receiver.recv_async().await {
-        // Gets contents of buffer
         let data = buffer_slice.get_mapped_range();
-        // Since contents are got in bytes, this converts these bytes back to u32
         let result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
-
-        // With the current interface, we have to make sure all mapped views are
-        // dropped before we unmap the buffer.
-        drop(data);
-        cpu_buffer.unmap(); // Unmaps buffer from memory
-                            // If you are familiar with C++ these 2 lines can be thought of similarly to:
-                            //   delete myPointer;
-                            //   myPointer = NULL;
-                            // It effectively frees the memory
-
         println!("{:?}", result);
+        drop(data);
+        cpu_buffer.unmap(); 
+        
     } else {
         panic!("failed to run compute on gpu!")
     }
