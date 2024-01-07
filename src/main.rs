@@ -40,7 +40,8 @@ async fn gpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
         label: Some("GPU Buffer"),
         size,
         usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_DST,
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     })
 }
@@ -48,12 +49,11 @@ async fn gpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
 async fn run() {
     let (device, queue) = gpu_device_queue().await;
 
-    let cs_module = compute_shader(&device).await;
-
     let size = (SIZE as usize * std::mem::size_of::<u32>()) as u64;
-    let cpu_buffer = cpu_buffer(&device, size).await;
-    let storage_buffer = gpu_buffer(&device, size).await;
+    let cpu_buf = cpu_buffer(&device, size).await;
+    let gpu_buf = gpu_buffer(&device, size).await;
 
+    let cs_module = compute_shader(&device).await;
     let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some("MandelBrot Compute Pipeline"),
         layout: None,
@@ -67,7 +67,7 @@ async fn run() {
         layout: &bind_group_layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
-            resource: storage_buffer.as_entire_binding(),
+            resource: gpu_buf.as_entire_binding(),
         }],
     });
 
@@ -87,8 +87,10 @@ async fn run() {
         cpass.dispatch_workgroups((WIDTH * HEIGHT) as u32, 1, 1);
     }
 
+    encoder.copy_buffer_to_buffer(&gpu_buf, 0, &cpu_buf, 0, size);
+
     queue.submit(Some(encoder.finish()));
-    let buffer_slice = cpu_buffer.slice(..);
+    let buffer_slice = cpu_buf.slice(..);
     let (sender, receiver) = flume::bounded(1);
     buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
     device.poll(wgpu::Maintain::Wait);
@@ -98,7 +100,7 @@ async fn run() {
         let result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
         println!("{:?}", result);
         drop(data);
-        cpu_buffer.unmap(); 
+        cpu_buf.unmap(); 
         
     } else {
         panic!("failed to run compute on gpu!")
