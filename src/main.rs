@@ -1,7 +1,7 @@
 use pollster::block_on;
 
-const WIDTH: usize = 1024;
-const HEIGHT: usize = 1024;
+const WIDTH: usize = 128;
+const HEIGHT: usize = 128;
 const SIZE: usize = WIDTH * HEIGHT;
 
 async fn gpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
@@ -89,7 +89,7 @@ async fn run() {
     }
 
     queue.submit(Some(encoder.finish()));
-    let buffer_slice = storage_buffer.slice(..);
+    let buffer_slice = cpu_buffer.slice(..);
     let (sender, receiver) = flume::bounded(1);
     buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
     device.poll(wgpu::Maintain::Wait);
