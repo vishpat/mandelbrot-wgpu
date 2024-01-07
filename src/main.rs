@@ -91,9 +91,29 @@ async fn run() {
     queue.submit(Some(encoder.finish()));
     let buffer_slice = storage_buffer.slice(..);
     let (sender, receiver) = flume::bounded(1);
-    let buffer_future =
-        buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+    buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
     device.poll(wgpu::Maintain::Wait);
+
+    // Awaits until `buffer_future` can be read from
+    if let Ok(Ok(())) = receiver.recv_async().await {
+        // Gets contents of buffer
+        let data = buffer_slice.get_mapped_range();
+        // Since contents are got in bytes, this converts these bytes back to u32
+        let result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
+
+        // With the current interface, we have to make sure all mapped views are
+        // dropped before we unmap the buffer.
+        drop(data);
+        cpu_buffer.unmap(); // Unmaps buffer from memory
+                            // If you are familiar with C++ these 2 lines can be thought of similarly to:
+                            //   delete myPointer;
+                            //   myPointer = NULL;
+                            // It effectively frees the memory
+
+        println!("{:?}", result);
+    } else {
+        panic!("failed to run compute on gpu!")
+    }
 }
 
 fn main() {
