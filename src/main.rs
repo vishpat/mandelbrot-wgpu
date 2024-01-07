@@ -1,8 +1,8 @@
 use pollster::block_on;
 
-const WIDTH: usize = 8*4;
-const HEIGHT: usize = 8*4;
-const WORKGROUP_SIZE: u64 = 64;
+const WORKGROUP_SIZE: u64 = 128;
+const WIDTH: usize = (WORKGROUP_SIZE * 4) as usize;
+const HEIGHT: usize = (WORKGROUP_SIZE * 4) as usize;
 const SIZE: wgpu::BufferAddress = (WIDTH * HEIGHT) as wgpu::BufferAddress;
 
 async fn gpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
@@ -100,6 +100,7 @@ async fn run() {
         let data = buffer_slice.get_mapped_range();
         let result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
         println!("{:?}", result);
+        println!("Size {}", SIZE);
         drop(data);
         cpu_buf.unmap(); 
         
