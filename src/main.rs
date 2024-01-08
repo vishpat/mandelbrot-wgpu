@@ -1,9 +1,18 @@
 use pollster::block_on;
+use wgpu::util::DeviceExt;
 
-const WORKGROUP_SIZE: u64 = 128;
+const WORKGROUP_SIZE: u64 = 64;
 const WIDTH: usize = (WORKGROUP_SIZE * 4) as usize;
 const HEIGHT: usize = (WORKGROUP_SIZE * 4) as usize;
 const SIZE: wgpu::BufferAddress = (WIDTH * HEIGHT) as wgpu::BufferAddress;
+
+
+#[repr(C)]
+#[derive(Debug, bytemuck::Pod, bytemuck::Zeroable, Clone, Copy)]
+pub struct ImageSize {
+    pub width: u32,
+    pub height: u32,
+}
 
 async fn gpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::default();
@@ -50,6 +59,16 @@ async fn gpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
 async fn run() {
     let (device, queue) = gpu_device_queue().await;
 
+    let img_size = ImageSize {
+        width: WIDTH as u32,
+        height: HEIGHT as u32,
+    };
+    let gpu_param_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("GPU Parameter Buffer"),
+        contents: bytemuck::cast_slice(&[img_size]),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    });
+
     let size = (SIZE as usize * std::mem::size_of::<u32>()) as u64;
     let cpu_buf = cpu_buffer(&device, size).await;
     let gpu_buf = gpu_buffer(&device, size).await;
@@ -72,6 +91,16 @@ async fn run() {
         }],
     });
 
+    let param_group_layout = compute_pipeline.get_bind_group_layout(1);
+    let param_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &param_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: gpu_param_buf.as_entire_binding(),
+        }],
+    });
+
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Command Encoder"),
     });
@@ -84,6 +113,7 @@ async fn run() {
 
         cpass.set_pipeline(&compute_pipeline);
         cpass.set_bind_group(0, &bind_group, &[]);
+        cpass.set_bind_group(1, &param_bind_group, &[]);
         cpass.insert_debug_marker("MandelBrot Compute Pass");
         cpass.dispatch_workgroups((SIZE / WORKGROUP_SIZE) as u32, 1, 1);
     }
