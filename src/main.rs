@@ -6,12 +6,16 @@ const WIDTH: usize = (WORKGROUP_SIZE * 4) as usize;
 const HEIGHT: usize = (WORKGROUP_SIZE * 4) as usize;
 const SIZE: wgpu::BufferAddress = (WIDTH * HEIGHT) as wgpu::BufferAddress;
 
-
 #[repr(C)]
 #[derive(Debug, bytemuck::Pod, bytemuck::Zeroable, Clone, Copy)]
-pub struct ImageSize {
+pub struct Params {
     pub width: u32,
     pub height: u32,
+    pub x: f32,
+    pub y: f32,
+    pub x_range: f32,
+    pub y_range: f32,
+    pub max_iter: u32,
 }
 
 async fn gpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
@@ -59,13 +63,18 @@ async fn gpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
 async fn run() {
     let (device, queue) = gpu_device_queue().await;
 
-    let img_size = ImageSize {
+    let params = Params {
         width: WIDTH as u32,
         height: HEIGHT as u32,
+        x: -0.65,
+        y: 0.0,
+        x_range: 3.4,
+        y_range: 3.4,
+        max_iter: 1000,
     };
     let gpu_param_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("GPU Parameter Buffer"),
-        contents: bytemuck::cast_slice(&[img_size]),
+        contents: bytemuck::cast_slice(&[params]),
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
 
@@ -128,12 +137,9 @@ async fn run() {
 
     if let Ok(Ok(())) = receiver.recv_async().await {
         let data = buffer_slice.get_mapped_range();
-        let result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
-        println!("{:?}", result);
-        println!("Size {}", SIZE);
+        let _result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
         drop(data);
-        cpu_buf.unmap(); 
-        
+        cpu_buf.unmap();
     } else {
         panic!("failed to run compute on gpu!")
     }
