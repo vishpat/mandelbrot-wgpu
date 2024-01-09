@@ -1,9 +1,10 @@
 use pollster::block_on;
 use wgpu::util::DeviceExt;
+use ndarray::Array2;
 
 const WORKGROUP_SIZE: u64 = 64;
-const WIDTH: usize = (WORKGROUP_SIZE * 1) as usize;
-const HEIGHT: usize = (WORKGROUP_SIZE * 1) as usize;
+const WIDTH: usize = (WORKGROUP_SIZE * 20) as usize;
+const HEIGHT: usize = (WORKGROUP_SIZE * 20) as usize;
 const SIZE: wgpu::BufferAddress = (WIDTH * HEIGHT) as wgpu::BufferAddress;
 
 #[repr(C)]
@@ -138,7 +139,12 @@ async fn run() {
     if let Ok(Ok(())) = receiver.recv_async().await {
         let data = buffer_slice.get_mapped_range();
         let _result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
-        println!("result: {:?}", _result);
+        let pixels = Array2::from_shape_vec((HEIGHT, WIDTH), _result).unwrap();
+        let img = image::ImageBuffer::from_fn(WIDTH as u32, HEIGHT as u32, |x, y| {
+            let pixel = pixels[[y as usize, x as usize]];
+            image::Rgb([(pixel >> 16) as u8, (pixel >> 8) as u8, pixel as u8])
+        });
+        img.save("mandelbrot.png").unwrap();
         drop(data);
         cpu_buf.unmap();
     } else {
