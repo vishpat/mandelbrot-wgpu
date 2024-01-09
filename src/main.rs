@@ -2,8 +2,8 @@ use pollster::block_on;
 use wgpu::util::DeviceExt;
 
 const WORKGROUP_SIZE: u64 = 64;
-const WIDTH: usize = (WORKGROUP_SIZE * 4) as usize;
-const HEIGHT: usize = (WORKGROUP_SIZE * 4) as usize;
+const WIDTH: usize = (WORKGROUP_SIZE * 1) as usize;
+const HEIGHT: usize = (WORKGROUP_SIZE * 1) as usize;
 const SIZE: wgpu::BufferAddress = (WIDTH * HEIGHT) as wgpu::BufferAddress;
 
 #[repr(C)]
@@ -138,6 +138,7 @@ async fn run() {
     if let Ok(Ok(())) = receiver.recv_async().await {
         let data = buffer_slice.get_mapped_range();
         let _result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
+        println!("result: {:?}", _result);
         drop(data);
         cpu_buf.unmap();
     } else {
