@@ -1,6 +1,4 @@
 use ndarray::Array2;
-use pollster::block_on;
-use wgpu::util::DeviceExt;
 
 const WORKGROUP_SIZE: u64 = 64;
 const WIDTH: usize = (WORKGROUP_SIZE * 20) as usize;
@@ -144,9 +142,66 @@ impl WgpuContext {
     }
 }
 
-fn run() {}
+async fn run() {
+    let context = WgpuContext::new(
+        std::mem::size_of::<f32>() * WIDTH * HEIGHT,
+        std::mem::size_of::<u32>() * WIDTH * HEIGHT,
+    ).await;
+
+    let params = Params {
+        width: WIDTH as u32,
+        height: HEIGHT as u32,
+        x: -0.65,
+        y: 0.0,
+        x_range: 3.4,
+        y_range: 3.4,
+        max_iter: 1000,
+    };
+    
+    context.queue.write_buffer(&context.param_buf, 0, bytemuck::cast_slice(&[params]));
+
+    let mut encoder = context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Command Encoder"),
+    });
+
+    {
+        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("Compute Pass"),
+            timestamp_writes: None,
+        });
+
+        cpass.set_pipeline(&context.pipeline);
+        cpass.set_bind_group(0, &context.param_bind_group, &[]);
+        cpass.set_bind_group(1, &context.bind_group, &[]);
+        cpass.insert_debug_marker("MandelBrot Compute Pass");
+        cpass.dispatch_workgroups((SIZE / WORKGROUP_SIZE) as u32, 1, 1);
+    }
+
+    encoder.copy_buffer_to_buffer(&context.gpu_buf, 0, &context.cpu_buf, 0, SIZE);
+    context.queue.submit(Some(encoder.finish()));
+
+    let buffer_slice = context.cpu_buf.slice(..);
+    let (sender, receiver) = flume::bounded(1);
+    buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+    context.device.poll(wgpu::Maintain::Wait);
+
+    if let Ok(Ok(())) = receiver.recv_async().await {
+        let data = buffer_slice.get_mapped_range();
+        let _result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
+        let pixels = Array2::from_shape_vec((HEIGHT, WIDTH), _result).unwrap();
+        let img = image::ImageBuffer::from_fn(WIDTH as u32, HEIGHT as u32, |x, y| {
+            let pixel = pixels[[y as usize, x as usize]];
+            image::Rgb([(pixel >> 16) as u8, (pixel >> 8) as u8, pixel as u8])
+        });
+        img.save("mandelbrot.png").unwrap();
+        drop(data);
+        context.cpu_buf.unmap();
+    } else {
+        panic!("failed to run compute on gpu!")
+    }
+}
 
 fn main() {
     env_logger::init();
-    run();
+    pollster::block_on(run());
 }
