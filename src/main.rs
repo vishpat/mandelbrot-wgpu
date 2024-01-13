@@ -1,9 +1,9 @@
-use ndarray::{Array1,Array2};
+use ndarray::{Array1,Array2,s};
 use pollster::block_on;
 
-const WORKGROUP_SIZE: u64 = 128;
-const WIDTH: usize = (WORKGROUP_SIZE * 10) as usize;
-const HEIGHT: usize = (WORKGROUP_SIZE * 10) as usize;
+const WORKGROUP_SIZE: u64 = 64;
+const WIDTH: usize = (WORKGROUP_SIZE * 20) as usize;
+const HEIGHT: usize = (WORKGROUP_SIZE * 20) as usize;
 const SIZE: wgpu::BufferAddress = (WIDTH * HEIGHT) as wgpu::BufferAddress;
 
 #[repr(C)]
@@ -168,6 +168,7 @@ async fn run() {
             cpass.set_bind_group(0, &param_bind_group, &[]);
             cpass.set_bind_group(1, &bind_group, &[]);
             cpass.insert_debug_marker("MandelBrot Compute Pass");
+//            println!("Dispatching workgroups {} each of size {}", SIZE / WORKGROUP_SIZE, WORKGROUP_SIZE);
             cpass.dispatch_workgroups((SIZE / WORKGROUP_SIZE) as u32, 1, 1);
         }
 
@@ -180,8 +181,9 @@ async fn run() {
 
         if let Ok(Ok(())) = receiver.recv_async().await {
             let data = buffer_slice.get_mapped_range();
-            let result = Array1::from(bytemuck::cast_slice(&data).to_vec());
-            pixels.row_mut(i).assign(&result);
+            let slice = Array1::from(bytemuck::cast_slice(&data).to_vec());
+            let mut view = pixels.slice_mut(s![i, ..]);
+            view.assign(&slice);
             drop(data);
             cpu_buf.unmap();
         } else {
