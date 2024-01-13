@@ -111,7 +111,7 @@ impl WgpuContext {
 
 async fn run() {
     let context = WgpuContext::new(
-        std::mem::size_of::<f32>() * WIDTH * HEIGHT,
+        std::mem::size_of::<u32>() * WIDTH * HEIGHT,
         std::mem::size_of::<u32>() * WIDTH * HEIGHT,
     )
     .await;
