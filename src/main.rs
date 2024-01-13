@@ -1,5 +1,4 @@
 use pollster::block_on;
-use wgpu::util::DeviceExt;
 use ndarray::Array2;
 
 const WORKGROUP_SIZE: u64 = 128;
@@ -64,19 +63,11 @@ async fn gpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
 async fn run() {
     let (device, queue) = gpu_device_queue().await;
 
-    let params = Params {
-        width: WIDTH as u32,
-        height: HEIGHT as u32,
-        x: -0.65,
-        y: 0.0,
-        x_range: 3.4,
-        y_range: 3.4,
-        max_iter: 1000,
-    };
-    let gpu_param_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+    let gpu_param_buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("GPU Parameter Buffer"),
-        contents: bytemuck::cast_slice(&[params]),
+        size: std::mem::size_of::<Params>() as u64,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
     });
 
     let size = (SIZE as usize * std::mem::size_of::<u32>()) as u64;
@@ -145,6 +136,17 @@ async fn run() {
         module: &cs_module,
         entry_point: "main",
     });
+
+    let params = Params {
+        width: WIDTH as u32,
+        height: HEIGHT as u32,
+        x: -0.65,
+        y: 0.0,
+        x_range: 3.4,
+        y_range: 3.4,
+        max_iter: 1000,
+    };
+    queue.write_buffer(&gpu_param_buf, 0, bytemuck::cast_slice(&[params]));
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Command Encoder"),
