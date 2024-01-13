@@ -96,11 +96,13 @@ impl WgpuContext {
             }],
         });
 
+        println!("param_bind_group: successful");
+
         // This can be though of as the function signature for our CPU-GPU function.
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 1,
+                binding: 0,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage { read_only: false },
