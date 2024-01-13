@@ -69,24 +69,50 @@ impl WgpuContext {
             mapped_at_creation: false,
         });
 
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: None,
-            layout: None,
-            module: &shader,
-            entry_point: "main",
-        });
-
-        let param_group_layout = pipeline.get_bind_group_layout(0);
+        // This can be though of as the function signature for our CPU-GPU function.
+        let param_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        // Going to have this be None just to be safe.
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+        // This ties actual resources stored in the GPU to our metaphorical function
+        // through the binding slots we defined above.
         let param_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
-            layout: &param_group_layout,
+            layout: &param_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: param_buf.as_entire_binding(),
             }],
         });
 
-        let bind_group_layout = pipeline.get_bind_group_layout(1);
+        // This can be though of as the function signature for our CPU-GPU function.
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    // Going to have this be None just to be safe.
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        // This ties actual resources stored in the GPU to our metaphorical function
+        // through the binding slots we defined above.
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bind_group_layout,
@@ -94,6 +120,18 @@ impl WgpuContext {
                 binding: 0,
                 resource: gpu_buf.as_entire_binding(),
             }],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&param_bind_group_layout, &bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: None,
+            layout: Some(&pipeline_layout),
+            module: &shader,
+            entry_point: "main",
         });
 
         WgpuContext {
@@ -111,10 +149,7 @@ impl WgpuContext {
 
 async fn run() {
     let size = (SIZE as usize * std::mem::size_of::<u32>()) as usize;
-    let context = WgpuContext::new(
-        size, size    
-    )
-    .await;
+    let context = WgpuContext::new(size, size).await;
 
     let params = Params {
         width: WIDTH as u32,
