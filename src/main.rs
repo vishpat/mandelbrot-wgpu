@@ -96,8 +96,6 @@ impl WgpuContext {
             }],
         });
 
-        println!("param_bind_group: successful");
-
         // This can be though of as the function signature for our CPU-GPU function.
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -163,8 +161,6 @@ async fn run() {
         max_iter: 1000,
     };
 
-    println!("params: {:?}", params);
-
     context
         .queue
         .write_buffer(&context.param_buf, 0, bytemuck::cast_slice(&[params]));
@@ -195,6 +191,8 @@ async fn run() {
     let (sender, receiver) = flume::bounded(1);
     buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
     context.device.poll(wgpu::Maintain::Wait);
+
+    println!("GPU buf size {}", context.gpu_buf.size());
 
     if let Ok(Ok(())) = receiver.recv_async().await {
         let data = buffer_slice.get_mapped_range();
