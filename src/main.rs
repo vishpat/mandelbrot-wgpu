@@ -1,8 +1,8 @@
 use ndarray::Array2;
 
-const WORKGROUP_SIZE: u64 = 64;
-const WIDTH: usize = (WORKGROUP_SIZE * 10) as usize;
-const HEIGHT: usize = (WORKGROUP_SIZE * 10) as usize;
+const WORKGROUP_SIZE: u64 = 32;
+const WIDTH: usize = (WORKGROUP_SIZE * 1) as usize;
+const HEIGHT: usize = (WORKGROUP_SIZE * 1) as usize;
 const SIZE: wgpu::BufferAddress = (WIDTH * HEIGHT) as wgpu::BufferAddress;
 
 #[repr(C)]
@@ -110,9 +110,9 @@ impl WgpuContext {
 }
 
 async fn run() {
+    let size = (SIZE as usize * std::mem::size_of::<u32>()) as usize;
     let context = WgpuContext::new(
-        std::mem::size_of::<u32>() * WIDTH * HEIGHT,
-        std::mem::size_of::<u32>() * WIDTH * HEIGHT,
+        size, size    
     )
     .await;
 
@@ -125,6 +125,8 @@ async fn run() {
         y_range: 3.4,
         max_iter: 1000,
     };
+
+    println!("params: {:?}", params);
 
     context
         .queue
@@ -160,6 +162,7 @@ async fn run() {
     if let Ok(Ok(())) = receiver.recv_async().await {
         let data = buffer_slice.get_mapped_range();
         let _result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
+        println!("result: {:?}", _result);
         let pixels = Array2::from_shape_vec((HEIGHT, WIDTH), _result).unwrap();
         let img = image::ImageBuffer::from_fn(WIDTH as u32, HEIGHT as u32, |x, y| {
             let pixel = pixels[[y as usize, x as usize]];
