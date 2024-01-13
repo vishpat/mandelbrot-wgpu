@@ -1,8 +1,8 @@
 use ndarray::Array2;
 
 const WORKGROUP_SIZE: u64 = 64;
-const WIDTH: usize = (WORKGROUP_SIZE * 20) as usize;
-const HEIGHT: usize = (WORKGROUP_SIZE * 20) as usize;
+const WIDTH: usize = (WORKGROUP_SIZE * 10) as usize;
+const HEIGHT: usize = (WORKGROUP_SIZE * 10) as usize;
 const SIZE: wgpu::BufferAddress = (WIDTH * HEIGHT) as wgpu::BufferAddress;
 
 #[repr(C)]
@@ -21,7 +21,7 @@ struct WgpuContext {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
-    param_bind_group: wgpu::BindGroup, 
+    param_bind_group: wgpu::BindGroup,
     bind_group: wgpu::BindGroup,
     param_buf: wgpu::Buffer,
     cpu_buf: wgpu::Buffer,
@@ -37,10 +37,7 @@ impl WgpuContext {
             .unwrap();
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor::default(),
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor::default(), None)
             .await
             .unwrap();
 
@@ -72,19 +69,14 @@ impl WgpuContext {
             mapped_at_creation: false,
         });
 
-        let param_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: None,
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        }); 
+            layout: None,
+            module: &shader,
+            entry_point: "main",
+        });
+
+        let param_group_layout = pipeline.get_bind_group_layout(0);
         let param_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &param_group_layout,
@@ -94,39 +86,14 @@ impl WgpuContext {
             }],
         });
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-
+        let bind_group_layout = pipeline.get_bind_group_layout(1);
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
-                binding: 1,
+                binding: 0,
                 resource: gpu_buf.as_entire_binding(),
             }],
-        });
-    
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&param_group_layout, &bind_group_layout],
-            push_constant_ranges: &[],
-        });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: None,
-            layout: Some(&pipeline_layout),
-            module: &shader,
-            entry_point: "main",
         });
 
         WgpuContext {
@@ -146,7 +113,8 @@ async fn run() {
     let context = WgpuContext::new(
         std::mem::size_of::<f32>() * WIDTH * HEIGHT,
         std::mem::size_of::<u32>() * WIDTH * HEIGHT,
-    ).await;
+    )
+    .await;
 
     let params = Params {
         width: WIDTH as u32,
@@ -157,12 +125,16 @@ async fn run() {
         y_range: 3.4,
         max_iter: 1000,
     };
-    
-    context.queue.write_buffer(&context.param_buf, 0, bytemuck::cast_slice(&[params]));
 
-    let mut encoder = context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Command Encoder"),
-    });
+    context
+        .queue
+        .write_buffer(&context.param_buf, 0, bytemuck::cast_slice(&[params]));
+
+    let mut encoder = context
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Command Encoder"),
+        });
 
     {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
