@@ -1,9 +1,9 @@
-use ndarray::Array2;
+use ndarray::{Array1,Array2};
 use pollster::block_on;
 
 const WORKGROUP_SIZE: u64 = 128;
-const WIDTH: usize = (WORKGROUP_SIZE * 20) as usize;
-const HEIGHT: usize = (WORKGROUP_SIZE * 20) as usize;
+const WIDTH: usize = (WORKGROUP_SIZE * 10) as usize;
+const HEIGHT: usize = (WORKGROUP_SIZE * 10) as usize;
 const SIZE: wgpu::BufferAddress = (WIDTH * HEIGHT) as wgpu::BufferAddress;
 
 #[repr(C)]
@@ -71,8 +71,7 @@ async fn run() {
         mapped_at_creation: false,
     });
 
-    let size = (SIZE as usize * std::mem::size_of::<u32>()) as u64;
-    let work_size = WIDTH as u64;
+    let work_size = (WIDTH * std::mem::size_of::<u32>()) as u64;
     let cpu_buf = cpu_buffer(&device, work_size).await;
     let gpu_buf = gpu_buffer(&device, work_size).await;
 
@@ -172,8 +171,7 @@ async fn run() {
             cpass.dispatch_workgroups((SIZE / WORKGROUP_SIZE) as u32, 1, 1);
         }
 
-        encoder.copy_buffer_to_buffer(&gpu_buf, 0, &cpu_buf, 0, size);
-
+        encoder.copy_buffer_to_buffer(&gpu_buf, 0, &cpu_buf, 0, work_size);
         queue.submit(Some(encoder.finish()));
         let buffer_slice = cpu_buf.slice(..);
         let (sender, receiver) = flume::bounded(1);
@@ -182,10 +180,8 @@ async fn run() {
 
         if let Ok(Ok(())) = receiver.recv_async().await {
             let data = buffer_slice.get_mapped_range();
-            let _result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
-            pixels
-                .row_mut(i)
-                .assign(&Array2::from_shape_vec((1, WIDTH), _result).unwrap());
+            let result = Array1::from(bytemuck::cast_slice(&data).to_vec());
+            pixels.row_mut(i).assign(&result);
             drop(data);
             cpu_buf.unmap();
         } else {
