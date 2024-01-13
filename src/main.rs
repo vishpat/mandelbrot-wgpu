@@ -23,6 +23,7 @@ struct WgpuContext {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
+    param_bind_group: wgpu::BindGroup, 
     bind_group: wgpu::BindGroup,
     param_buf: wgpu::Buffer,
     cpu_buf: wgpu::Buffer,
@@ -39,11 +40,7 @@ impl WgpuContext {
 
         let (device, queue) = adapter
             .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_defaults(),
-                },
+                &wgpu::DeviceDescriptor::default(),
                 None,
             )
             .await
@@ -71,20 +68,41 @@ impl WgpuContext {
         });
 
         let param_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Parameter Buffer"),
+            label: Some("Param Uniform Buffer"),
             size: std::mem::size_of::<Params>() as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
             mapped_at_creation: false,
         });
 
-        // This can be though of as the function signature for our CPU-GPU function.
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let param_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        }); 
+        let param_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &param_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: param_buf.as_entire_binding(),
+            }],
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
@@ -96,14 +114,14 @@ impl WgpuContext {
             label: None,
             layout: &bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: cpu_buf.as_entire_binding(),
+                binding: 1,
+                resource: gpu_buf.as_entire_binding(),
             }],
         });
-
+    
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&bind_group_layout],
+            bind_group_layouts: &[&param_group_layout, &bind_group_layout],
             push_constant_ranges: &[],
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -117,7 +135,9 @@ impl WgpuContext {
             device,
             queue,
             pipeline,
+            param_bind_group,
             bind_group,
+            param_buf,
             cpu_buf,
             gpu_buf,
         }
@@ -128,5 +148,5 @@ fn run() {}
 
 fn main() {
     env_logger::init();
-    block_on(run());
+    run();
 }
