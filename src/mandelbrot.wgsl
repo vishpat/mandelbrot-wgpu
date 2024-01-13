@@ -1,6 +1,7 @@
 struct Params {
     width: u32,
     height: u32,
+    row: u32,
     x: f32,
     y: f32,
     x_range: f32,
@@ -19,7 +20,7 @@ var<storage, read_write> v_indices: array<u32>;
 @compute
 @workgroup_size(128, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let row = global_id.x / params.width;
+    let row = params.row;
     let col = global_id.x % params.width;
 
     var min_x = (params.x - params.x_range)/2.0;
