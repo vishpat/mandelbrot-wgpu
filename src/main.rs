@@ -2,9 +2,8 @@ use ndarray::{Array1,Array2,s};
 use pollster::block_on;
 
 const WORKGROUP_SIZE: u64 = 64;
-const WIDTH: usize = (WORKGROUP_SIZE * 20) as usize;
-const HEIGHT: usize = (WORKGROUP_SIZE * 20) as usize;
-const SIZE: wgpu::BufferAddress = (WIDTH * HEIGHT) as wgpu::BufferAddress;
+const WIDTH: usize = (WORKGROUP_SIZE * 512) as usize;
+const HEIGHT: usize = (WORKGROUP_SIZE * 512) as usize;
 
 #[repr(C)]
 #[derive(Debug, bytemuck::Pod, bytemuck::Zeroable, Clone, Copy)]
@@ -168,7 +167,8 @@ async fn run() {
             cpass.set_bind_group(0, &param_bind_group, &[]);
             cpass.set_bind_group(1, &bind_group, &[]);
             cpass.insert_debug_marker("MandelBrot Compute Pass");
-            cpass.dispatch_workgroups((SIZE / WORKGROUP_SIZE) as u32, 1, 1);
+            cpass.dispatch_workgroups((WIDTH as u64 / WORKGROUP_SIZE) as u32, 1, 1);
+
         }
 
         encoder.copy_buffer_to_buffer(&gpu_buf, 0, &cpu_buf, 0, work_size);
