@@ -168,7 +168,6 @@ async fn run() {
             cpass.set_bind_group(0, &param_bind_group, &[]);
             cpass.set_bind_group(1, &bind_group, &[]);
             cpass.insert_debug_marker("MandelBrot Compute Pass");
-//            println!("Dispatching workgroups {} each of size {}", SIZE / WORKGROUP_SIZE, WORKGROUP_SIZE);
             cpass.dispatch_workgroups((SIZE / WORKGROUP_SIZE) as u32, 1, 1);
         }
 
