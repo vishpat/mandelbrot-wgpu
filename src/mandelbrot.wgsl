@@ -1,7 +1,6 @@
 struct Params {
     width: u32,
     height: u32,
-    row: u32,
     x: f32,
     y: f32,
     x_range: f32,
@@ -18,10 +17,11 @@ var<uniform> params: Params;
 var<storage, read_write> v_indices: array<u32>; 
 
 @compute
-@workgroup_size(64, 1, 1)
+@workgroup_size(16, 16, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let row = params.row;
-    let col = global_id.x % params.width;
+    let pixel = global_id.xy;
+    let row = pixel.y;
+    let col = pixel.x;
 
     var min_x = (params.x - params.x_range)/2.0;
     var max_y = (params.y + params.y_range)/2.0;
@@ -43,5 +43,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
-    v_indices[global_id.x] = 16777215u;
+    var pixel_index = row * params.width + col;
+    v_indices[pixel_index] = 16777215u;
 }
