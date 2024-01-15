@@ -1,9 +1,9 @@
-use ndarray::{Array1,Array2,s};
 use pollster::block_on;
+use image::{ImageBuffer, Rgb};
 
 const WORKGROUP_SIZE: u64 = 64;
-const WIDTH: usize = (WORKGROUP_SIZE * 512) as usize;
-const HEIGHT: usize = (WORKGROUP_SIZE * 512) as usize;
+const WIDTH: usize = (WORKGROUP_SIZE * 512 * 2) as usize;
+const HEIGHT: usize = (WORKGROUP_SIZE * 512 * 2) as usize;
 
 #[repr(C)]
 #[derive(Debug, bytemuck::Pod, bytemuck::Zeroable, Clone, Copy)]
@@ -138,7 +138,7 @@ async fn run() {
         entry_point: "main",
     });
 
-    let mut pixels = Array2::<u32>::zeros((HEIGHT, WIDTH));
+    let mut img_buf = ImageBuffer::new(WIDTH as u32, HEIGHT as u32);
     for i in 0..HEIGHT {
         let params = Params {
             width: WIDTH as u32,
@@ -180,20 +180,19 @@ async fn run() {
 
         if let Ok(Ok(())) = receiver.recv_async().await {
             let data = buffer_slice.get_mapped_range();
-            let slice = Array1::from(bytemuck::cast_slice(&data).to_vec());
-            let mut view = pixels.slice_mut(s![i, ..]);
-            view.assign(&slice);
+            let row: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
+            for col in 0..WIDTH {
+                let pixel = row[col];
+                img_buf.put_pixel(col as u32, i as u32, Rgb([(pixel >> 16) as u8, (pixel >> 8) as u8, pixel as u8]));
+            }
+            
             drop(data);
             cpu_buf.unmap();
         } else {
             panic!("failed to run compute on gpu!")
         }
     }
-    let img = image::ImageBuffer::from_fn(WIDTH as u32, HEIGHT as u32, |x, y| {
-        let pixel = pixels[[y as usize, x as usize]];
-        image::Rgb([(pixel >> 16) as u8, (pixel >> 8) as u8, pixel as u8])
-    });
-    img.save("mandelbrot.png").unwrap();
+    img_buf.save("mandelbrot.png").unwrap();
 }
 
 fn main() {
