@@ -1,16 +1,15 @@
+use ndarray::Array2;
 use pollster::block_on;
-use image::{ImageBuffer, Rgb};
 
-const WORKGROUP_SIZE: u64 = 64;
-const WIDTH: usize = (WORKGROUP_SIZE * 1024) as usize;
-const HEIGHT: usize = (WORKGROUP_SIZE * 1024) as usize;
+const CHUNK_LEN: usize = 8;
+const WIDTH: usize = CHUNK_LEN * 512 * 4;
+const HEIGHT: usize = CHUNK_LEN * 512 * 4;
 
 #[repr(C)]
 #[derive(Debug, bytemuck::Pod, bytemuck::Zeroable, Clone, Copy)]
 pub struct Params {
     pub width: u32,
     pub height: u32,
-    pub row: u32,
     pub x: f32,
     pub y: f32,
     pub x_range: f32,
@@ -25,8 +24,18 @@ async fn device_queue() -> (wgpu::Device, wgpu::Queue) {
         .await
         .unwrap();
 
+    let limits = wgpu::Limits {
+        max_storage_buffer_binding_size: 1 << 31,
+        max_buffer_size: 1 << 31,
+        ..Default::default()
+    };
+
     let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor::default(), None)
+        .request_device(&wgpu::DeviceDescriptor{
+            label: None,
+            features: wgpu::Features::empty(),
+            limits,
+        }, None)
         .await
         .unwrap();
 
@@ -70,7 +79,7 @@ async fn run() {
         mapped_at_creation: false,
     });
 
-    let work_size = (WIDTH * std::mem::size_of::<u32>()) as u64;
+    let work_size = (WIDTH * HEIGHT * std::mem::size_of::<u32>()) as u64;
     let host_buf = host_buffer(&device, work_size).await;
     let device_buf = device_buffer(&device, work_size).await;
 
@@ -138,61 +147,59 @@ async fn run() {
         entry_point: "main",
     });
 
-    let mut img_buf = ImageBuffer::new(WIDTH as u32, HEIGHT as u32);
-    for i in 0..HEIGHT {
-        let params = Params {
-            width: WIDTH as u32,
-            height: HEIGHT as u32,
-            row: i as u32,
-            x: -0.65,
-            y: 0.0,
-            x_range: 3.4,
-            y_range: 3.4,
-            max_iter: 1000,
-        };
-        queue.write_buffer(&gpu_param_buf, 0, bytemuck::cast_slice(&[params]));
+    let params = Params {
+        width: WIDTH as u32,
+        height: HEIGHT as u32,
+        x: -0.65,
+        y: 0.0,
+        x_range: 3.4,
+        y_range: 3.4,
+        max_iter: 1000,
+    };
+    queue.write_buffer(&gpu_param_buf, 0, bytemuck::cast_slice(&[params]));
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Command Encoder"),
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Command Encoder"),
+    });
+
+    {
+        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("Compute Pass"),
+            timestamp_writes: None,
         });
 
-        {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Compute Pass"),
-                timestamp_writes: None,
-            });
+        cpass.set_pipeline(&compute_pipeline);
 
-            cpass.set_pipeline(&compute_pipeline);
-
-            cpass.set_bind_group(0, &param_bind_group, &[]);
-            cpass.set_bind_group(1, &bind_group, &[]);
-            cpass.insert_debug_marker("MandelBrot Compute Pass");
-            cpass.dispatch_workgroups((WIDTH as u64 / WORKGROUP_SIZE) as u32, 1, 1);
-
-        }
-
-        encoder.copy_buffer_to_buffer(&device_buf, 0, &host_buf, 0, work_size);
-        queue.submit(Some(encoder.finish()));
-        let buffer_slice = host_buf.slice(..);
-        let (sender, receiver) = flume::bounded(1);
-        buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-        device.poll(wgpu::Maintain::Wait);
-
-        if let Ok(Ok(())) = receiver.recv_async().await {
-            let data = buffer_slice.get_mapped_range();
-            let row: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
-            for col in 0..WIDTH {
-                let pixel = row[col];
-                img_buf.put_pixel(col as u32, i as u32, Rgb([(pixel >> 16) as u8, (pixel >> 8) as u8, pixel as u8]));
-            }
-            
-            drop(data);
-            host_buf.unmap();
-        } else {
-            panic!("failed to run compute on gpu!")
-        }
+        cpass.set_bind_group(0, &param_bind_group, &[]);
+        cpass.set_bind_group(1, &bind_group, &[]);
+        cpass.insert_debug_marker("MandelBrot Compute Pass");
+        let workgroups_x = (WIDTH / CHUNK_LEN) as u32;
+        let workgroups_y = (HEIGHT / CHUNK_LEN) as u32;
+        cpass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
     }
-    img_buf.save("mandelbrot.png").unwrap();
+
+    encoder.copy_buffer_to_buffer(&device_buf, 0, &host_buf, 0, work_size);
+    queue.submit(Some(encoder.finish()));
+    let buffer_slice = host_buf.slice(..);
+    let (sender, receiver) = flume::bounded(1);
+    buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+    device.poll(wgpu::Maintain::Wait);
+
+    if let Ok(Ok(())) = receiver.recv_async().await {
+        let data = buffer_slice.get_mapped_range();
+        let _result: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
+        let pixels = Array2::from_shape_vec((HEIGHT, WIDTH), _result).unwrap();
+        let img = image::ImageBuffer::from_fn(WIDTH as u32, HEIGHT as u32, |x, y| {
+            let pixel = pixels[[y as usize, x as usize]];
+            image::Rgb([(pixel >> 16) as u8, (pixel >> 8) as u8, pixel as u8])
+        });
+        img.save("mandelbrot.png").unwrap();
+
+        drop(data);
+        host_buf.unmap();
+    } else {
+        panic!("failed to run compute on gpu!")
+    }
 }
 
 fn main() {
