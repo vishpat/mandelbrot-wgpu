@@ -2,8 +2,8 @@ use pollster::block_on;
 use image::{ImageBuffer, Rgb};
 
 const WORKGROUP_SIZE: u64 = 64;
-const WIDTH: usize = (WORKGROUP_SIZE * 512 * 2) as usize;
-const HEIGHT: usize = (WORKGROUP_SIZE * 512 * 2) as usize;
+const WIDTH: usize = (WORKGROUP_SIZE * 1024) as usize;
+const HEIGHT: usize = (WORKGROUP_SIZE * 1024) as usize;
 
 #[repr(C)]
 #[derive(Debug, bytemuck::Pod, bytemuck::Zeroable, Clone, Copy)]
@@ -18,7 +18,7 @@ pub struct Params {
     pub max_iter: u32,
 }
 
-async fn gpu_device_queue() -> (wgpu::Device, wgpu::Queue) {
+async fn device_queue() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::default();
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions::default())
@@ -40,7 +40,7 @@ async fn compute_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
     })
 }
 
-async fn cpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+async fn host_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("CPU Buffer"),
         size,
@@ -49,7 +49,7 @@ async fn cpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
     })
 }
 
-async fn gpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+async fn device_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("GPU Buffer"),
         size,
@@ -61,7 +61,7 @@ async fn gpu_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
 }
 
 async fn run() {
-    let (device, queue) = gpu_device_queue().await;
+    let (device, queue) = device_queue().await;
 
     let gpu_param_buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("GPU Parameter Buffer"),
@@ -71,8 +71,8 @@ async fn run() {
     });
 
     let work_size = (WIDTH * std::mem::size_of::<u32>()) as u64;
-    let cpu_buf = cpu_buffer(&device, work_size).await;
-    let gpu_buf = gpu_buffer(&device, work_size).await;
+    let host_buf = host_buffer(&device, work_size).await;
+    let device_buf = device_buffer(&device, work_size).await;
 
     let cs_module = compute_shader(&device).await;
 
@@ -121,7 +121,7 @@ async fn run() {
         layout: &bind_group_layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
-            resource: gpu_buf.as_entire_binding(),
+            resource: device_buf.as_entire_binding(),
         }],
     });
 
@@ -171,9 +171,9 @@ async fn run() {
 
         }
 
-        encoder.copy_buffer_to_buffer(&gpu_buf, 0, &cpu_buf, 0, work_size);
+        encoder.copy_buffer_to_buffer(&device_buf, 0, &host_buf, 0, work_size);
         queue.submit(Some(encoder.finish()));
-        let buffer_slice = cpu_buf.slice(..);
+        let buffer_slice = host_buf.slice(..);
         let (sender, receiver) = flume::bounded(1);
         buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
         device.poll(wgpu::Maintain::Wait);
@@ -187,7 +187,7 @@ async fn run() {
             }
             
             drop(data);
-            cpu_buf.unmap();
+            host_buf.unmap();
         } else {
             panic!("failed to run compute on gpu!")
         }
