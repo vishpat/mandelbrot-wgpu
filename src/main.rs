@@ -2,8 +2,8 @@ use ndarray::Array2;
 use pollster::block_on;
 
 const CHUNK_LEN: usize = 8;
-const WIDTH: usize = CHUNK_LEN * 512 * 8;
-const HEIGHT: usize = CHUNK_LEN * 512 * 8;
+const WIDTH: usize = CHUNK_LEN * 512 * 4;
+const HEIGHT: usize = CHUNK_LEN * 512 * 4;
 
 #[repr(C)]
 #[derive(Debug, bytemuck::Pod, bytemuck::Zeroable, Clone, Copy)]
@@ -24,8 +24,18 @@ async fn device_queue() -> (wgpu::Device, wgpu::Queue) {
         .await
         .unwrap();
 
+    let limits = wgpu::Limits {
+        max_storage_buffer_binding_size: 1 << 31,
+        max_buffer_size: 1 << 31,
+        ..Default::default()
+    };
+
     let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor::default(), None)
+        .request_device(&wgpu::DeviceDescriptor{
+            label: None,
+            features: wgpu::Features::empty(),
+            limits,
+        }, None)
         .await
         .unwrap();
 
